@@ -3,8 +3,6 @@ const VM = require('ethereumjs-vm');
 const BN = VM.deps.ethUtil.BN;
 const OP = require('./constants');
 
-const toHex = arr => arr.map(e => '0x' + e.toString(16).padStart(64, '0'));
-
 // Supported by ethereumjs-vm
 const ERRNO_MAP =
   {
@@ -40,11 +38,6 @@ const ERROR_KEYS = Object.keys(ERRNO_MAP);
 
 const DEFAULT_CONTRACT_ADDRESS = Buffer.from('0f572e5295c57F15886F9b263E2f6d2d6c7b5ec6', 'hex');
 const DEFAULT_CALLER = Buffer.from('cD1722f2947Def4CF144679da39c4C32bDc35681', 'hex');
-
-const OP_SWAP1 = parseInt(OP.SWAP1, 16);
-const OP_SWAP16 = parseInt(OP.SWAP16, 16);
-const OP_DUP1 = parseInt(OP.DUP1, 16);
-const OP_DUP16 = parseInt(OP.DUP16, 16);
 
 // 256x32 bytes
 const MAX_MEM_WORD_COUNT = new BN(256);
@@ -195,36 +188,11 @@ module.exports = class OffchainStepper extends VM.MetaVM {
       return;
     }
 
-    let prevStep = runState.context.steps[runState.context.steps.length - 1] || {};
-    // re-use if possible
-    let stack = prevStep.stack || toHex(runState.stack);
-    let pc = runState.programCounter;
-    let gasLeft = runState.gasLeft.addn(0);
     let exceptionError;
-
-    const memProof = runState.memProof;
-    const callDataProof = runState.callDataProof;
-
-    callDataProof.reset();
-    memProof.reset();
     try {
       await super.runNextStep(runState);
     } catch (e) {
       exceptionError = e;
-    }
-
-    let opcodeName = runState.opName;
-    let opcode = runState.opCode;
-    let stackFixed;
-
-    if (opcode >= OP_SWAP1 && opcode <= OP_SWAP16) {
-      let x = 16 - (OP_SWAP16 - opcode);
-      stackFixed = stack.slice(-(x * 2));
-    }
-
-    if (opcode >= OP_DUP1 && opcode <= OP_DUP16) {
-      let x = 16 - (OP_DUP16 - opcode);
-      stackFixed = stack.slice(-x);
     }
 
     let errno = 0;
@@ -245,77 +213,28 @@ module.exports = class OffchainStepper extends VM.MetaVM {
       runState.vmError = true;
     }
 
-    // if we have no errors and opcode is not RETURN or STOP, update pc
-    if (errno === 0 && (opcode !== 0xf3 && opcode !== 0x00)) {
-      pc = runState.programCounter;
-    }
-
     if (runState.memoryWordCount.gt(MAX_MEM_WORD_COUNT)) {
       runState.vmError = true;
       errno = OP.ERROR_INTERNAL;
     }
 
-    const compactStack = runState.stackIn ? stack.slice(-runState.stackIn) : (stackFixed || []);
-    const returnData = '0x' + (runState.returnValue ? runState.returnValue.toString('hex') : '');
-    const gasRemaining = runState.gasLeft.toNumber();
-    const gasFee = gasLeft.sub(runState.gasLeft).toNumber();
-    const memStore = runState.memProof.data;
-    const mem = [];
-
-    let i = 0;
-    while (i < memStore.length) {
-      let hexVal = Buffer.from(memStore.slice(i, i += 32)).toString('hex');
-      while (hexVal.length !== 64) {
-        hexVal += '00';
-      }
-      mem.push('0x' + hexVal);
-    }
-    // fill the remaing zero slots
-    let memSize = runState.memoryWordCount.toNumber();
-    while (mem.length < memSize) {
-      mem.push(OP.ZERO_HASH);
-    }
-
-    stack = toHex(runState.stack);
-    let isMemoryRequired = false;
-    if (memProof.readHigh !== -1 || memProof.writeHigh !== -1) {
-      isMemoryRequired = true;
-    }
-
-    let isCallDataRequired = false;
-    if (callDataProof.readHigh !== -1 || callDataProof.writeHigh !== -1) {
-      isCallDataRequired = true;
-    }
-
-    runState.context.steps.push({
-      memReadLow: memProof.readLow,
-      memReadHigh: memProof.readHigh,
-      memWriteLow: memProof.writeLow,
-      memWriteHigh: memProof.writeHigh,
-      callDataReadLow: callDataProof.readLow,
-      callDataReadHigh: callDataProof.readHigh,
-      opcodeName: opcodeName,
-      isCallDataRequired: isCallDataRequired,
-      isMemoryRequired: isMemoryRequired,
-      gasFee: gasFee,
-      data: runState.context.data,
-      stack: stack,
-      compactStack: compactStack,
-      mem: mem,
-      returnData: returnData,
-      pc: pc,
-      errno: errno,
-      gasRemaining: gasRemaining,
-    });
+    runState.errno = errno;
   }
 
   async run ({ code, data, stack, mem, gasLimit, blockGasLimit, gasRemaining, pc, stepCount }) {
     data = data || '0x';
     blockGasLimit = Buffer.from(NumToHex(blockGasLimit || OP.BLOCK_GAS_LIMIT), 'hex');
 
+    if (Array.isArray(code)) {
+      code = code.join('');
+    } else {
+      // should be a (hex) string
+      code = code.replace('0x', '');
+    }
+
     // TODO: make it configurable by the user
     // init default account
-    await this.initAccounts([{ code: code.join(''), address: DEFAULT_CONTRACT_ADDRESS }]);
+    await this.initAccounts([{ code: code, address: DEFAULT_CONTRACT_ADDRESS }]);
     // commit to the tree, needs a checkpoint first 🤪
     await new Promise((resolve) => {
       this.stateManager.checkpoint(() => {
@@ -325,17 +244,6 @@ module.exports = class OffchainStepper extends VM.MetaVM {
       });
     });
 
-    const context = {
-      code: code,
-      data: data,
-      stack: stack,
-      mem: mem,
-      pc: pc | 0,
-      gasRemaining: gasRemaining,
-      steps: [],
-      gasLeft: gasRemaining,
-    };
-
     const defaultBlock = {
       header: {
         gasLimit: blockGasLimit,
@@ -344,7 +252,7 @@ module.exports = class OffchainStepper extends VM.MetaVM {
     };
 
     const runState = await this.initRunState({
-      code: Buffer.from(code.join(''), 'hex'),
+      code: Buffer.from(code, 'hex'),
       data: Buffer.from(data.replace('0x', ''), 'hex'),
       gasLimit: Buffer.from(NumToHex(gasLimit || OP.BLOCK_GAS_LIMIT), 'hex'),
       gasPrice: 0,
@@ -352,27 +260,27 @@ module.exports = class OffchainStepper extends VM.MetaVM {
       origin: DEFAULT_CALLER,
       address: DEFAULT_CONTRACT_ADDRESS,
       block: defaultBlock,
-      pc: context.pc,
+      pc: pc | 0,
     });
-    runState.context = context;
 
+    runState.errno = 0;
     runState.memProof = new RangeProofHelper(runState.memory);
     runState.callDataProof = new RangeProofHelper(runState.callData);
     runState.callData = runState.callDataProof.proxy;
     runState.memory = runState.memProof.proxy;
 
-    if (context.stack) {
-      const len = context.stack.length;
+    if (stack) {
+      const len = stack.length;
 
       for (let i = 0; i < len; i++) {
-        runState.stack.push(new BN(context.stack[i].replace('0x', ''), 'hex'));
+        runState.stack.push(new BN(stack[i].replace('0x', ''), 'hex'));
       }
     }
-    if (context.mem) {
-      const len = context.mem.length;
+    if (mem) {
+      const len = mem.length;
 
       for (let i = 0; i < len; i++) {
-        const memSlot = context.mem[i];
+        const memSlot = mem[i];
 
         runState.memoryWordCount.iaddn(1);
 
@@ -388,13 +296,13 @@ module.exports = class OffchainStepper extends VM.MetaVM {
       runState.highestMemCost = words.muln(3).add(words.mul(words).divn(512));
     }
 
-    if (typeof context.gasRemaining !== 'undefined') {
-      runState.gasLeft.isub(runState.gasLeft.sub(new BN(context.gasRemaining)));
+    if (typeof gasRemaining !== 'undefined') {
+      runState.gasLeft.isub(runState.gasLeft.sub(new BN(gasRemaining)));
     }
 
     await super.run(runState, stepCount | 0);
 
-    return context.steps;
+    return runState;
   }
 
   async handlePUSH (runState) {

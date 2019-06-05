@@ -43,6 +43,7 @@
   "dependencies": {
     "ethereumjs-vm": "https://github.com/pinkiebell/ethereumjs-vm.git#release/v2.6.0-r5",
     "ethers": "^4.0.13",
+    "keccak": "^2.0.0",
     "openzeppelin-solidity": "=2.1.1"
   }
 }

@@ -8,9 +8,7 @@ module.exports = class ProofHelper {
     const prevOutput = computationPath.left.executionState;
     const execState = computationPath.right.executionState;
     const proofs = {
-      stackHash: Merkelizer.stackHash(
-        prevOutput.stack.slice(0, prevOutput.stack.length - execState.compactStack.length)
-      ),
+      stackHash: execState.compactStackHash,
       memHash: execState.isMemoryRequired ? ZERO_HASH : Merkelizer.memHash(prevOutput.mem),
       dataHash: execState.isCallDataRequired ? ZERO_HASH : Merkelizer.dataHash(prevOutput.data),
     };

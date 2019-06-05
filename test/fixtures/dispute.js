@@ -1,4 +1,4 @@
-const OffchainStepper = require('./../../utils/OffchainStepper');
+const HydratedRuntime = require('./../../utils/HydratedRuntime');
 const Merkelizer = require('./../../utils/Merkelizer');
 const OP = require('./../../utils/constants');
 const debug = require('debug')('dispute-test');
@@ -41,7 +41,7 @@ module.exports = (callback) => {
     let steps;
     let copy;
     let merkle;
-    const stepper = new OffchainStepper();
+    const stepper = new HydratedRuntime();
 
     beforeEach(async () => {
       steps = await stepper.run({ code, data });
@@ -56,7 +56,7 @@ module.exports = (callback) => {
     it('challenger has an output error somewhere', async () => {
       const wrongExecution = JSON.parse(copy);
       wrongExecution[6].compactStack.push('0x0000000000000000000000000000000000000000000000000000000000000001');
-      wrongExecution[6].stack.push('0x0000000000000000000000000000000000000000000000000000000000000001');
+      wrongExecution[6].stackHash = '0x0000000000000000000000000000000000000000000000000000000000000001';
       const challengerMerkle = new Merkelizer().run(wrongExecution, code, data);
       await callback(code, data, merkle, challengerMerkle, 'solver');
     });
@@ -64,7 +64,7 @@ module.exports = (callback) => {
     it('solver has an output error somewhere', async () => {
       const wrongExecution = JSON.parse(copy);
       wrongExecution[6].compactStack.push('0x0000000000000000000000000000000000000000000000000000000000000001');
-      wrongExecution[6].stack.push('0x0000000000000000000000000000000000000000000000000000000000000001');
+      wrongExecution[6].stackHash = '0x0000000000000000000000000000000000000000000000000000000000000001';
       const solverMerkle = new Merkelizer().run(wrongExecution, code, data);
       await callback(code, data, solverMerkle, merkle, 'challenger');
     });
@@ -119,7 +119,7 @@ module.exports = (callback) => {
       const wrongExecution = JSON.parse(copy);
       for (let i = 1; i < wrongExecution.length; i += 2) {
         wrongExecution[i].compactStack.push('0x0000000000000000000000000000000000000000000000000000000000000000');
-        wrongExecution[i].stack.push('0x0000000000000000000000000000000000000000000000000000000000000000');
+        wrongExecution[i].stackHash = '0x0000000000000000000000000000000000000000000000000000000000000001';
       }
       const challengerMerkle = new Merkelizer().run(wrongExecution, code, data);
       await callback(code, data, merkle, challengerMerkle, 'solver');
@@ -129,7 +129,7 @@ module.exports = (callback) => {
       const wrongExecution = JSON.parse(copy);
       for (let i = 1; i < wrongExecution.length; i += 2) {
         wrongExecution[i].compactStack.push('0x0000000000000000000000000000000000000000000000000000000000000000');
-        wrongExecution[i].stack.push('0x0000000000000000000000000000000000000000000000000000000000000000');
+        wrongExecution[i].stackHash = '0x0000000000000000000000000000000000000000000000000000000000000001';
       }
       const solverMerkle = new Merkelizer().run(wrongExecution, code, data);
       await callback(code, data, solverMerkle, merkle, 'challenger');
@@ -197,7 +197,7 @@ module.exports = (callback) => {
     let steps;
     let copy;
     let merkle;
-    const stepper = new OffchainStepper();
+    const stepper = new HydratedRuntime();
 
     before(async () => {
       steps = await stepper.run({ code });
@@ -246,7 +246,7 @@ module.exports = (callback) => {
 
     const data = '0x';
     let steps;
-    const stepper = new OffchainStepper();
+    const stepper = new HydratedRuntime();
     let challengerMerkle;
     let leaves;
 
@@ -366,7 +366,7 @@ module.exports = (callback) => {
     let steps;
     let copy;
     let merkle;
-    const stepper = new OffchainStepper();
+    const stepper = new HydratedRuntime();
 
     before(async () => {
       steps = await stepper.run({ code, data });
@@ -439,7 +439,7 @@ module.exports = (callback) => {
 
     let steps;
     let merkle;
-    const stepper = new OffchainStepper();
+    const stepper = new HydratedRuntime();
 
     before(async () => {
       steps = await stepper.run({ code, data });

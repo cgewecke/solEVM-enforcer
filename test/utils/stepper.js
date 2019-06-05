@@ -1,6 +1,6 @@
 
 const { getCode } = require('./../helpers/utils');
-const OffchainStepper = require('./../../utils/OffchainStepper');
+const HydratedRuntime = require('./../../utils/HydratedRuntime');
 const fixtures = require('./../fixtures/runtime');
 
 const assert = require('assert');
@@ -11,7 +11,7 @@ describe('JS Stepper', function () {
       const { pc, opcodeUnderTest } = getCode(fixture);
 
       it(fixture.description || opcodeUnderTest, async () => {
-        const stepper = new OffchainStepper();
+        const stepper = new HydratedRuntime();
         const code = typeof fixture.code === 'object' ? fixture.code : [fixture.code];
         const stack = fixture.stack || [];
         const mem = fixture.memory || '';

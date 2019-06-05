@@ -1,4 +1,5 @@
 const ethers = require('ethers');
+const createKeccakHash = require('keccak');
 
 const AbstractMerkleTree = require('./AbstractMerkleTree');
 const { ZERO_HASH } = require('./constants');
@@ -33,23 +34,41 @@ module.exports = class Merkelizer extends AbstractMerkleTree {
   }
 
   static stackHash (stack, sibling) {
-    let res = sibling || ZERO_HASH;
+    const res = sibling || ZERO_HASH;
+    const len = stack.length;
 
-    for (var i = 0; i < stack.length; i++) {
-      res = ethers.utils.solidityKeccak256(
-        ['bytes32', 'bytes32'],
-        [res, stack[i]]
-      );
+    if (len === 0) {
+      return res;
     }
 
-    return res;
+    // could be further improved by a custom keccak implementation
+    const hash = createKeccakHash('keccak256');
+
+    hash.update(Buffer.from(res.replace('0x', ''), 'hex'));
+    for (let i = 0; i < len; i++) {
+      const val = Buffer.from(stack[i].replace('0x', ''), 'hex');
+
+      hash.update(val);
+
+      if (i !== len - 1) {
+        const buf = hash.digest();
+        hash._finalized = false;
+        hash.update(buf);
+      }
+    }
+
+    return `0x${hash.digest().toString('hex')}`;
   }
 
   static memHash (mem) {
-    return ethers.utils.solidityKeccak256(
-      ['bytes32[]'],
-      [mem]
-    );
+    const len = mem.length;
+    const hash = createKeccakHash('keccak256');
+
+    for (let i = 0; i < len; i++) {
+      hash.update(Buffer.from(mem[i].replace('0x', ''), 'hex'));
+    }
+
+    return `0x${hash.digest().toString('hex')}`;
   }
 
   static dataHash (data) {
@@ -63,7 +82,7 @@ module.exports = class Merkelizer extends AbstractMerkleTree {
     // TODO: compact returnData
 
     if (!stackHash || stackHash === ZERO_HASH) {
-      stackHash = this.stackHash(execution.stack);
+      stackHash = this.stackHash(execution.stack || []);
     }
 
     if (!memHash || memHash === ZERO_HASH) {
@@ -110,11 +129,11 @@ module.exports = class Merkelizer extends AbstractMerkleTree {
 
     for (let i = 0; i < len; i++) {
       const exec = executions[i];
-      const stackHash = this.constructor.stackHash(exec.stack);
+      const stackHash = exec.stackHash;
 
       // convenience
-      exec.stackSize = exec.stack.length;
       exec.memSize = exec.mem.length;
+      exec.data = callData;
 
       // memory is changed if either written to or if it was expanded
       let memoryChanged = exec.memWriteLow !== -1;

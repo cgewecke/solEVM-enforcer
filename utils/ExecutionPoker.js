@@ -1,6 +1,6 @@
 const ethers = require('ethers');
 
-const OffchainStepper = require('./OffchainStepper.js');
+const HydratedRuntime = require('./HydratedRuntime.js');
 const Merkelizer = require('./Merkelizer.js');
 const ProofHelper = require('./ProofHelper.js');
 const { ZERO_HASH } = require('./constants.js');
@@ -279,7 +279,7 @@ module.exports = class ExecutionPoker {
       code.push(bytecode.substring(i, i += 2));
     }
 
-    const stepper = new OffchainStepper();
+    const stepper = new HydratedRuntime();
     const steps = await stepper.run({ code, data });
     if (invalidateLastStep) {
       this.log('making one execution step invalid');
