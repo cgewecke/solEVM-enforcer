@@ -87,6 +87,10 @@ class RangeProofHelper {
           if (x > self.readHigh || self.readHigh === -1) {
             self.readHigh = x;
           }
+
+          if (self.readAndWrites.indexOf(x) === -1) {
+            self.readAndWrites.push(x);
+          }
         }
 
         return obj[prop];
@@ -103,12 +107,22 @@ class RangeProofHelper {
           if (x > self.writeHigh || self.writeHigh === -1) {
             self.writeHigh = x;
           }
+
+          if (self.readAndWrites.indexOf(x) === -1) {
+            self.readAndWrites.push(x);
+          }
         }
 
         return true;
       },
 
       slice: function (a, b) {
+        for (let i = a; i < b; i++) {
+          if (self.readAndWrites.indexOf(i) === -1) {
+            self.readAndWrites.push(i);
+          }
+        }
+
         if (a < self.readLow || self.readLow === -1) {
           self.readLow = a;
         }
@@ -128,6 +142,7 @@ class RangeProofHelper {
     this.readHigh = -1;
     this.writeLow = -1;
     this.writeHigh = -1;
+    this.readAndWrites = [];
   }
 }
 
@@ -204,9 +219,12 @@ module.exports = class OffchainStepper extends VM.MetaVM {
 
     const memProof = runState.memProof;
     const callDataProof = runState.callDataProof;
+    const codeProof = runState.codeProof;
 
     callDataProof.reset();
     memProof.reset();
+    codeProof.reset();
+
     try {
       await super.runNextStep(runState);
     } catch (e) {
@@ -287,6 +305,22 @@ module.exports = class OffchainStepper extends VM.MetaVM {
       isCallDataRequired = true;
     }
 
+    const codeReads = codeProof.readAndWrites.filter(
+      function (val) {
+        return val < runState.code.length;
+      }
+    ).sort(
+      function (a, b) {
+        if (a < b) {
+          return -1;
+        }
+        if (a > b) {
+          return 1;
+        }
+        return 0;
+      }
+    );
+
     runState.context.steps.push({
       memReadLow: memProof.readLow,
       memReadHigh: memProof.readHigh,
@@ -294,6 +328,7 @@ module.exports = class OffchainStepper extends VM.MetaVM {
       memWriteHigh: memProof.writeHigh,
       callDataReadLow: callDataProof.readLow,
       callDataReadHigh: callDataProof.readHigh,
+      codeReads: codeReads,
       opcodeName: opcodeName,
       isCallDataRequired: isCallDataRequired,
       isMemoryRequired: isMemoryRequired,
@@ -358,8 +393,10 @@ module.exports = class OffchainStepper extends VM.MetaVM {
 
     runState.memProof = new RangeProofHelper(runState.memory);
     runState.callDataProof = new RangeProofHelper(runState.callData);
+    runState.codeProof = new RangeProofHelper(runState.code);
     runState.callData = runState.callDataProof.proxy;
     runState.memory = runState.memProof.proxy;
+    runState.code = runState.codeProof.proxy;
 
     if (context.stack) {
       const len = context.stack.length;
@@ -410,6 +447,18 @@ module.exports = class OffchainStepper extends VM.MetaVM {
 
     runState.programCounter += numToPush;
     runState.stack.push(result);
+  }
+
+  async handleJUMP (runState) {
+    await super.handleJUMP(runState);
+
+    runState.codeProof.readAndWrites.push(runState.programCounter);
+  }
+
+  async handleJUMPI (runState) {
+    await super.handleJUMPI(runState);
+
+    runState.codeProof.readAndWrites.push(runState.programCounter);
   }
 
   async handleCALL (runState) {

@@ -3,6 +3,7 @@ const ethers = require('ethers');
 const OffchainStepper = require('./OffchainStepper.js');
 const Merkelizer = require('./Merkelizer.js');
 const ProofHelper = require('./ProofHelper.js');
+const FragmentTree = require('./FragmentTree');
 const { ZERO_HASH } = require('./constants.js');
 
 module.exports = class ExecutionPoker {
@@ -189,6 +190,7 @@ module.exports = class ExecutionPoker {
       merkle: res.merkle,
       depth: res.merkle.depth,
       computationPath: res.merkle.root,
+      codeFragmentTree: res.codeFragmentTree,
     };
 
     this.disputes[disputeId] = obj;
@@ -204,7 +206,7 @@ module.exports = class ExecutionPoker {
       this.log('submitting for l=' +
         obj.computationPath.left.hash + ' r=' + obj.computationPath.right.hash);
 
-      await this.submitProof(disputeId, obj.computationPath);
+      await this.submitProof(disputeId, obj);
       return;
     }
 
@@ -258,8 +260,8 @@ module.exports = class ExecutionPoker {
     this.log('gas used', tx.gasUsed.toString());
   }
 
-  async submitProof (disputeId, computationPath) {
-    const args = ProofHelper.constructProof(computationPath);
+  async submitProof (disputeId, disputeObj) {
+    const args = ProofHelper.constructProof(disputeObj.computationPath, disputeObj);
 
     this.log('submitting proof - proofs', args.proofs);
     this.log('submitting proof - executionState', args.executionInput);
@@ -288,6 +290,12 @@ module.exports = class ExecutionPoker {
       code.push(bytecode.substring(i, i += 2));
     }
 
+    let codeFragmentTree;
+    // code is not on chain-🍕
+    if (evmParams.codeHash.endsWith('000000000000000000000000')) {
+      codeFragmentTree = new FragmentTree().run(bytecode);
+    }
+
     const stepper = new OffchainStepper();
     const steps = await stepper.run({ code, data });
     if (invalidateLastStep) {
@@ -296,7 +304,7 @@ module.exports = class ExecutionPoker {
     }
     const merkle = new Merkelizer().run(steps, bytecode, data);
 
-    return { steps, merkle };
+    return { steps, merkle, codeFragmentTree };
   }
 
   async getCodeForParams (evmParams) {
